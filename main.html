@@ -465,8 +465,8 @@
                         </button>
                         
                         <!-- Export XLSX -->
-                        <button onclick="exportToExcel()" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition inline-flex items-center shadow-sm">
-                            <i class="fa-solid fa-file-excel mr-1.5"></i> Xuất Excel (.xlsx)
+                        <button onclick="exportToExcel()" title="Xuất toàn bộ lượt tàu của kỳ đang chọn, không phụ thuộc bộ lọc hay phân trang" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition inline-flex items-center shadow-sm">
+                            <i class="fa-solid fa-file-excel mr-1.5"></i> Xuất toàn bộ kỳ (.xlsx)
                         </button>
 
                         <!-- Export CSV -->
@@ -18519,7 +18519,7 @@
         }
 
         function exportToExcel() {
-            const worksheet = XLSX.utils.json_to_sheet(filteredData.map((d, i) => ({
+            const worksheet = XLSX.utils.json_to_sheet(vesselData.map((d, i) => ({
                 "STT": i + 1,
                 "Tên Tàu": d.shipName,
                 "GRT": d.grt,
@@ -18540,7 +18540,7 @@
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "ThongKeTauThuyen");
             XLSX.writeFile(workbook, "Duy_Lieu_Tau_Thuyen_Cang_Bien.xlsx");
-            showToast("Đã xuất file Excel thành công!");
+            showToast(`Đã xuất ${vesselData.length} lượt tàu của kỳ đang chọn ra file Excel; không áp dụng bộ lọc.`);
         }
 
         function exportToCSV() {
