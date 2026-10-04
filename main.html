@@ -32,6 +32,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- SheetJS (XLSX) for Reading & Writing Excel Files -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- ExcelJS preserves worksheet styling in exported workbooks -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; }
@@ -465,8 +467,8 @@
                         </button>
                         
                         <!-- Export XLSX -->
-                        <button onclick="exportToExcel()" title="Xuất toàn bộ lượt tàu của kỳ đang chọn, không phụ thuộc bộ lọc hay phân trang" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition inline-flex items-center shadow-sm">
-                            <i class="fa-solid fa-file-excel mr-1.5"></i> Xuất toàn bộ kỳ (.xlsx)
+                        <button onclick="exportToExcel()" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium transition inline-flex items-center shadow-sm">
+                            <i class="fa-solid fa-file-excel mr-1.5"></i> Xuất Excel (.xlsx)
                         </button>
 
                         <!-- Export CSV -->
@@ -540,6 +542,9 @@
                 </div>
                     <button onclick="window.print()" class="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-xs font-bold hover:opacity-90 transition inline-flex items-center shadow">
                         <i class="fa-solid fa-print mr-2"></i> In / Xuất PDF Báo Cáo
+                    </button>
+                    <button onclick="exportAllReportsToExcel()" class="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition inline-flex items-center shadow">
+                        <i class="fa-solid fa-file-excel mr-2"></i> Tải Excel toàn bộ biểu
                     </button>
                 </div>
                 <div id="reportSettings" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3 border-t border-slate-200 dark:border-slate-700 pt-3">
@@ -18519,7 +18524,7 @@
         }
 
         function exportToExcel() {
-            const worksheet = XLSX.utils.json_to_sheet(vesselData.map((d, i) => ({
+            const worksheet = XLSX.utils.json_to_sheet(filteredData.map((d, i) => ({
                 "STT": i + 1,
                 "Tên Tàu": d.shipName,
                 "GRT": d.grt,
@@ -18540,7 +18545,220 @@
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "ThongKeTauThuyen");
             XLSX.writeFile(workbook, "Duy_Lieu_Tau_Thuyen_Cang_Bien.xlsx");
-            showToast(`Đã xuất ${vesselData.length} lượt tàu của kỳ đang chọn ra file Excel; không áp dụng bộ lọc.`);
+            showToast("Đã xuất file Excel thành công!");
+        }
+
+        function getExcelCellValue(cell) {
+            const input = cell.querySelector('input');
+            return (input ? input.value : cell.innerText).trim();
+        }
+
+        function getExcelColor(color) {
+            const match = String(color || '').match(/^rgba?\(([^)]+)\)$/i);
+            if (!match) return null;
+            const channels = match[1].split(',').map(value => value.trim());
+            if (channels.length === 4 && Number(channels[3]) === 0) return null;
+            return channels.slice(0, 3).map(channel =>
+                Number(channel).toString(16).padStart(2, '0')
+            ).join('').toUpperCase();
+        }
+
+        function safeWorksheetName(value, fallback) {
+            const normalized = String(value || fallback).replace(/[\\/*?:\[\]]/g, ' ').trim();
+            return (normalized || fallback).slice(0, 31);
+        }
+
+        function addReportHeading(worksheet, type, columnCount) {
+            const institution = document.getElementById('reportInstitutionHeader');
+            const institutionLines = institution.innerText.split('\n').map(line => line.trim()).filter(Boolean);
+            const period = document.getElementById('reportIssueDate').innerText.trim();
+            const title = document.getElementById('reportHeaderTitle').innerText.trim();
+            const heading = worksheet.addRow([institutionLines.join('    |    ')]);
+            worksheet.mergeCells(heading.number, 1, heading.number, columnCount);
+            heading.height = 22;
+            heading.getCell(1).font = { bold: true, size: 10, color: { argb: 'FF334155' } };
+
+            const periodRow = worksheet.addRow([period]);
+            worksheet.mergeCells(periodRow.number, 1, periodRow.number, columnCount);
+            periodRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF475569' } };
+
+            const titleRow = worksheet.addRow([`${type} — ${title}`]);
+            worksheet.mergeCells(titleRow.number, 1, titleRow.number, columnCount);
+            titleRow.height = 26;
+            titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF0F4C81' } };
+            titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            return titleRow.number + 1;
+        }
+
+        function appendHtmlTableToWorksheet(worksheet, table, firstRow, type) {
+            const rows = [...table.rows];
+            let maxColumns = 1;
+            const tableData = rows.map(row => [...row.cells].map(getExcelCellValue));
+            maxColumns = Math.max(maxColumns, ...tableData.map(row => row.length));
+            const tableStart = addReportHeading(worksheet, type, maxColumns);
+
+            tableData.forEach((values, rowIndex) => {
+                const worksheetRow = worksheet.getRow(tableStart + rowIndex);
+                values.forEach((value, columnIndex) => {
+                    const cell = worksheetRow.getCell(columnIndex + 1);
+                    cell.value = value;
+                    const sourceCell = rows[rowIndex].cells[columnIndex];
+                    const sourceRow = sourceCell.parentElement;
+                    const isHeader = sourceCell.tagName === 'TH';
+                    const isSection = sourceRow.classList.contains('report-section-row');
+                    const isTotal = sourceRow.classList.contains('report-total-row');
+                    const isIndex = sourceCell.classList.contains('report-index-cell');
+                    const isNumeric = sourceCell.classList.contains('report-number-cell');
+                    const background = isHeader ? 'FFF1F5F9'
+                        : isSection ? 'FFEFF6FF'
+                            : isTotal ? 'FFF0FDFA'
+                                : rowIndex % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC';
+                    const foreground = isSection ? 'FF0F4C81'
+                        : isTotal ? 'FF134E4A'
+                            : isIndex ? 'FF64748B' : 'FF1E293B';
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: background } };
+                    cell.font = { bold: isHeader || isSection || isTotal, color: { argb: isHeader ? 'FF475569' : foreground }, size: 10 };
+                    cell.alignment = {
+                        vertical: 'middle',
+                        horizontal: isHeader || isIndex ? 'center' : isNumeric ? 'right' : 'left',
+                        wrapText: true
+                    };
+                    cell.border = {
+                        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+                    };
+                });
+                worksheetRow.height = rowIndex === 0 ? 32 : 22;
+            });
+
+            const headerRow = worksheet.getRow(tableStart);
+            headerRow.height = 34;
+            worksheet.views = [{ state: 'frozen', ySplit: tableStart }];
+            for (let column = 1; column <= maxColumns; column++) {
+                const width = Math.max(...tableData.map(row => String(row[column - 1] || '').length), 8);
+                worksheet.getColumn(column).width = Math.min(Math.max(width + 2, 12), 42);
+            }
+        }
+
+        function appendMonthlySheetToWorkbook(worksheet) {
+            const table = document.querySelector('#reportTableOutput .monthly-sheet-grid');
+            if (!table) {
+                worksheet.addRow(['Không có bảng màu tháng trong kỳ đang chọn.']);
+                return;
+            }
+
+            const rows = [...table.rows];
+            const mergedCells = new Set();
+            rows.forEach((row, rowIndex) => {
+                let columnIndex = 1;
+                [...row.cells].forEach(cell => {
+                    while (mergedCells.has(`${rowIndex + 1},${columnIndex}`)) columnIndex++;
+                    const value = getExcelCellValue(cell);
+                    const target = worksheet.getRow(rowIndex + 1).getCell(columnIndex);
+                    target.value = value;
+                    const fillColor = getExcelColor(getComputedStyle(cell).backgroundColor);
+                    if (fillColor && fillColor !== 'FFFFFF') {
+                        target.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${fillColor}` } };
+                    }
+                    target.font = { name: 'Arial', size: 10, color: { argb: 'FF111827' } };
+                    target.alignment = {
+                        vertical: 'middle',
+                        horizontal: cell.dataset.numeric === 'true' ? 'right' : 'left',
+                        wrapText: true
+                    };
+                    target.border = {
+                        top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                        bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                    };
+                    if (cell.rowSpan > 1 || cell.colSpan > 1) {
+                        for (let mergedRow = rowIndex + 1; mergedRow <= rowIndex + cell.rowSpan; mergedRow++) {
+                            for (let mergedColumn = columnIndex; mergedColumn < columnIndex + cell.colSpan; mergedColumn++) {
+                                if (mergedRow !== rowIndex + 1 || mergedColumn !== columnIndex) {
+                                    mergedCells.add(`${mergedRow},${mergedColumn}`);
+                                }
+                            }
+                        }
+                        worksheet.mergeCells(
+                            rowIndex + 1,
+                            columnIndex,
+                            rowIndex + cell.rowSpan,
+                            columnIndex + cell.colSpan - 1
+                        );
+                    }
+                    columnIndex += cell.colSpan;
+                });
+                worksheet.getRow(rowIndex + 1).height = 22;
+            });
+
+            const columns = [...table.querySelectorAll('colgroup col')];
+            columns.forEach((column, index) => {
+                const width = Number.parseFloat(column.style.width);
+                worksheet.getColumn(index + 1).width = width ? Math.max(4, width / 7) : 12;
+            });
+            worksheet.views = [{ state: 'frozen', ySplit: 5 }];
+        }
+
+        async function exportAllReportsToExcel() {
+            if (!window.ExcelJS?.Workbook) {
+                showToast('Không tải được thư viện xuất Excel có định dạng. Hãy tải lại trang rồi thử lại.', false);
+                return;
+            }
+
+            const reportTypes = ['11-T', '11B-T', '12-T', '12B-T', '13-T', '14-T', '15-T'];
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'Maritime Port Fleet';
+            workbook.created = new Date();
+            const originalTab = currentReportTab;
+            const originalDetailPage = detailReportPage;
+            const originalDetailPageSize = detailReportPageSize;
+            const originalMonthlyEditMode = monthlySheetEditMode;
+            const originalMonthlyCategory = monthlySummaryCategory;
+            const container = document.getElementById('reportTableOutput');
+
+            try {
+                detailReportPage = 1;
+                detailReportPageSize = Number.MAX_SAFE_INTEGER;
+                for (const type of reportTypes) {
+                    renderComputedReport(type);
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    const table = container.querySelector('table.report-data-table');
+                    if (!table) throw new Error(`Không tạo được sheet biểu ${type}.`);
+                    const worksheet = workbook.addWorksheet(safeWorksheetName(type, 'BaoCao'));
+                    appendHtmlTableToWorksheet(worksheet, table, 1, type);
+                }
+
+                monthlySheetEditMode = true;
+                renderComputedReport('month-sheet');
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                const monthlyName = safeWorksheetName(monthlySheetView?.sheetName || 'Bảng màu tháng', 'BangMauThang');
+                const monthlyWorksheet = workbook.addWorksheet(monthlyName);
+                appendMonthlySheetToWorkbook(monthlyWorksheet);
+
+                const periodName = String(activeMonthKey || 'ky-bao-cao').replace(/[^\w-]/g, '-');
+                const buffer = await workbook.xlsx.writeBuffer();
+                const file = new Blob([buffer], {
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                });
+                const downloadUrl = URL.createObjectURL(file);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = `Bao_Cao_Tau_Thuyen_${periodName}.xlsx`;
+                downloadLink.click();
+                URL.revokeObjectURL(downloadUrl);
+                showToast(`Đã tải file Excel gồm ${reportTypes.length} biểu báo cáo và bảng màu tháng.`);
+            } catch (error) {
+                console.error('Không thể xuất toàn bộ biểu mẫu ra Excel:', error);
+                showToast(`Xuất Excel toàn bộ biểu thất bại: ${error.message}`, false);
+            } finally {
+                detailReportPage = originalDetailPage;
+                detailReportPageSize = originalDetailPageSize;
+                monthlySheetEditMode = originalMonthlyEditMode;
+                monthlySummaryCategory = originalMonthlyCategory;
+                currentReportTab = originalTab;
+                renderReportOutput(originalTab);
+            }
         }
 
         function exportToCSV() {
