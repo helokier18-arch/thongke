@@ -61,6 +61,12 @@ Render's free service may spin down while idle and take time to wake. Its filesy
 
 Returns API and MongoDB availability.
 
+### Download the report workbook template
+
+`GET /report-template.xlsx`
+
+Returns the cleaned Excel template used by the app's **Tải Excel toàn bộ** export. The template keeps its report sheets, formatting, and formulas without the original vessel records.
+
 ### List monthly datasets
 
 `GET /api/datasets`

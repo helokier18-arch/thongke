@@ -323,6 +323,18 @@ async function handleRequest(request, response) {
         return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/report-template.xlsx') {
+        const template = await fs.readFile(path.join(__dirname, 'report-template.xlsx'));
+        response.writeHead(200, {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Length': template.length,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff'
+        });
+        response.end(template);
+        return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/datasets') {
         const items = await datasets.find({}, {
             projection: { _id: 1, updatedAt: 1, vesselCount: 1 }

@@ -169,6 +169,11 @@
                         <span class="hidden sm:inline">Nhập Excel</span>
                     </button>
 
+                    <button onclick="exportFullWorkbookToExcel()" title="Tải workbook đầy đủ dữ liệu, biểu mẫu và công thức Excel" class="inline-flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition shadow-sm">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span class="hidden md:inline">Tải Excel toàn bộ</span>
+                    </button>
+
                     <input type="file" id="vesselDataBackupInput" accept=".js" class="hidden" onchange="handleVesselDataBackupUpload(event)">
                     <button onclick="exportVesselDataBackup()" title="Tải toàn bộ dữ liệu vận hành thành file JavaScript" class="inline-flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition shadow-sm">
                         <i class="fa-solid fa-download"></i>
@@ -542,9 +547,6 @@
                 </div>
                     <button onclick="window.print()" class="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-xs font-bold hover:opacity-90 transition inline-flex items-center shadow">
                         <i class="fa-solid fa-print mr-2"></i> In / Xuất PDF Báo Cáo
-                    </button>
-                    <button onclick="exportAllReportsToExcel()" class="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition inline-flex items-center shadow">
-                        <i class="fa-solid fa-file-excel mr-2"></i> Tải Excel toàn bộ biểu
                     </button>
                 </div>
                 <div id="reportSettings" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3 border-t border-slate-200 dark:border-slate-700 pt-3">
@@ -17228,14 +17230,24 @@
                 ...sheetView.rowHeights.slice(insertionRow - sheetView.startRow)
             ];
             const rawValues = {};
+            const exportedFormulas = {};
             for (const [key, cell] of cells) {
                 const [rowText, columnText] = key.split(',');
                 const row = Number(rowText);
                 const column = Number(columnText);
                 const address = XLSX.utils.encode_cell({ r: row, c: column });
                 rawValues[address] = cell.formula ? evaluateCell(row, column) : cell.value;
+                if (cell.formula) exportedFormulas[address] = cell.formula;
             }
-            return { rows: formattedRows, merges, rowHeights, rowCount: sheetView.rowCount + overflow, formulaErrors: formulaErrors.size, rawValues };
+            return {
+                rows: formattedRows,
+                merges,
+                rowHeights,
+                rowCount: sheetView.rowCount + overflow,
+                formulaErrors: formulaErrors.size,
+                rawValues,
+                formulas: exportedFormulas
+            };
         }
 
         function calculateReportFormulaSheets(monthValues) {
@@ -17657,6 +17669,347 @@
             } catch (error) {
                 console.error('Không thể tạo file sao lưu dữ liệu tàu:', error);
                 showToast(`Không thể tạo file sao lưu: ${error.message}`, false);
+            }
+        }
+
+        function copyExcelRowFormatting(sourceRow, targetRow, columnCount) {
+            targetRow.height = sourceRow.height;
+            targetRow.hidden = sourceRow.hidden;
+            for (let column = 1; column <= columnCount; column++) {
+                targetRow.getCell(column).style = structuredClone(sourceRow.getCell(column).style);
+            }
+        }
+
+        function snapshotExcelRowFormatting(sourceRow, columnCount) {
+            return {
+                height: sourceRow.height,
+                hidden: sourceRow.hidden,
+                styles: Array.from({ length: columnCount }, (_, index) =>
+                    structuredClone(sourceRow.getCell(index + 1).style)
+                )
+            };
+        }
+
+        function restoreExcelRowFormatting(snapshot, targetRow) {
+            targetRow.height = snapshot.height;
+            targetRow.hidden = snapshot.hidden;
+            snapshot.styles.forEach((style, index) => {
+                targetRow.getCell(index + 1).style = style;
+            });
+        }
+
+        function populateFormulaVesselReport(worksheet, records, sourceSheetName, targetSheetName, sourceRows) {
+            const firstDataRow = 13;
+            const modelRow = worksheet.getRow(firstDataRow);
+            const formulaModel = modelRow._cells
+                .filter(cell => cell?.type === ExcelJS.ValueType.Formula)
+                .map(cell => ({ column: cell.col, formula: cell.value.formula }));
+            const firstReference = formulaModel
+                .map(cell => cell.formula.match(/!\$?[A-Z]{1,3}\$?(\d+)/)?.[1])
+                .find(Boolean);
+            if (!formulaModel.length || !firstReference) {
+                throw new Error(`Không tìm thấy dòng công thức mẫu trong biểu ${worksheet.name}.`);
+            }
+            const sourceTemplateRow = Number(firstReference);
+            const monthlySheetReference = new RegExp(`'${sourceSheetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'!`, 'g');
+            const sourceRowReference = new RegExp(`(!\\$?[A-Z]{1,3}\\$?)${sourceTemplateRow}\\b`, 'g');
+
+            for (let rowNumber = firstDataRow; rowNumber <= worksheet.rowCount; rowNumber++) {
+                worksheet.getRow(rowNumber).eachCell({ includeEmpty: true }, cell => { cell.value = null; });
+            }
+
+            const lastDataRow = firstDataRow + records.length - 1;
+            while (worksheet.rowCount < lastDataRow) {
+                const nextRow = worksheet.addRow([]);
+                copyExcelRowFormatting(modelRow, nextRow, worksheet.columnCount);
+            }
+
+            records.forEach((record, index) => {
+                const reportRowNumber = firstDataRow + index;
+                const reportRow = worksheet.getRow(reportRowNumber);
+                if (reportRowNumber !== firstDataRow) {
+                    copyExcelRowFormatting(modelRow, reportRow, worksheet.columnCount);
+                }
+                const assignedSourceRow = sourceRows.get(String(record.id));
+                if (!Number.isInteger(assignedSourceRow)) {
+                    throw new Error(`Không tìm thấy dòng nguồn của tàu "${record.shipName}" trong sheet tháng.`);
+                }
+                const sourceRowNumber = assignedSourceRow + 1;
+                formulaModel.forEach(({ column, formula: modelFormula }) => {
+                    let formula = modelFormula
+                        .replace(monthlySheetReference, `'${targetSheetName}'!`)
+                        .replace(sourceRowReference, `$1${sourceRowNumber}`);
+                    if (worksheet.name === '11B-T') {
+                        const shipType = String(record.shipType || 'SB').replace(/"/g, '""');
+                        formula = formula.replace(/(!J\$?\d+\s*=\s*)"SB"/g, `$1"${shipType}"`);
+                    }
+                    reportRow.getCell(column).value = { formula };
+                });
+            });
+        }
+
+        function appendAllVesselDataSheet(worksheet, datasets) {
+            const columns = [
+                ['Kỳ', record => record.period],
+                ['STT', record => record.index],
+                ['Tên tàu', record => record.vessel.shipName],
+                ['IMO', record => record.vessel.imo],
+                ['GRT', record => record.vessel.grt],
+                ['DWT', record => record.vessel.dwt],
+                ['Chiều dài (m)', record => record.vessel.length],
+                ['Mớn nước (m)', record => record.vessel.draft],
+                ['Quốc tịch', record => record.vessel.flag],
+                ['Hô hiệu', record => record.vessel.callSign],
+                ['Loại tàu', record => record.vessel.shipType],
+                ['Nhóm tàu', record => record.vessel.vesselClass],
+                ['Tuyến hoạt động', record => record.vessel.movementType],
+                ['Loại hàng', record => record.vessel.cargoType],
+                ['Sản lượng', record => record.vessel.cargoAmount],
+                ['Ngày cập', record => record.vessel.dateIn],
+                ['Ngày rời', record => record.vessel.dateOut],
+                ['Cảng trước', record => record.vessel.lastPort],
+                ['Bến làm hàng', record => record.vessel.port],
+                ['Cảng tiếp theo', record => record.vessel.nextPort],
+                ['Đại lý', record => record.vessel.agent],
+                ['Mã tuyến cập', record => record.vessel.sourceRouteCode],
+                ['Mã tuyến rời', record => record.vessel.sourceRouteOutCode],
+                ['Bến thống kê', record => record.vessel.berthCategory],
+                ['Hàng xuất (tấn)', record => record.vessel.cargoBreakdown?.exportTons],
+                ['Hàng nhập (tấn)', record => record.vessel.cargoBreakdown?.importTons],
+                ['Hàng nội địa (tấn)', record => record.vessel.cargoBreakdown?.domesticTons],
+                ['Hàng chuyển tải (tấn)', record => record.vessel.cargoBreakdown?.transshipmentTons],
+                ['Hàng quá cảnh xếp (tấn)', record => record.vessel.cargoBreakdown?.transitLoadedTons],
+                ['Hàng quá cảnh trực tiếp (tấn)', record => record.vessel.cargoBreakdown?.transitDirectTons],
+                ['Container (tấn)', record => record.vessel.cargoBreakdown?.containerTons],
+                ['Container (TEU)', record => record.vessel.cargoBreakdown?.containerTeus],
+                ['Hàng khô (tấn)', record => record.vessel.cargoBreakdown?.dryTons],
+                ['Hàng lỏng (tấn)', record => record.vessel.cargoBreakdown?.liquidTons],
+                ['Khách vào', record => record.vessel.cargoBreakdown?.passengersIn],
+                ['Khách ra', record => record.vessel.cargoBreakdown?.passengersOut]
+            ];
+            const allRecords = datasets.flatMap(([key, dataset]) => {
+                const period = String(dataset.reportImportSummary?.period || dataset.reportPeriodLabel || key);
+                return dataset.vessels.map((vessel, index) => ({ period, index: index + 1, vessel }));
+            });
+
+            for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber++) {
+                worksheet.getRow(rowNumber).eachCell({ includeEmpty: true }, cell => { cell.value = null; });
+            }
+            const header = worksheet.getRow(1);
+            columns.forEach(([label], index) => {
+                const cell = header.getCell(index + 1);
+                cell.value = label;
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F4C81' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } };
+                worksheet.getColumn(index + 1).width = Math.min(Math.max(String(label).length + 3, 14), 32);
+            });
+            header.height = 32;
+
+            allRecords.forEach((record, index) => {
+                const row = worksheet.getRow(index + 2);
+                columns.forEach(([, getValue], columnIndex) => {
+                    const value = getValue(record);
+                    const cell = row.getCell(columnIndex + 1);
+                    cell.value = value ?? '';
+                    cell.alignment = { vertical: 'middle', wrapText: true };
+                    cell.border = { bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } } };
+                });
+            });
+            const lastDataRow = Math.max(1, allRecords.length + 1);
+            worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+            const lastColumn = XLSX.utils.encode_col(columns.length - 1);
+            worksheet.autoFilter = `A1:${lastColumn}${lastDataRow}`;
+            worksheet.pageSetup.printArea = `A1:${lastColumn}${lastDataRow}`;
+            return allRecords.length;
+        }
+
+        async function exportFullWorkbookToExcel() {
+            if (!window.ExcelJS?.Workbook || !window.XLSX?.utils) {
+                showToast('Không tải được thư viện xuất Excel. Hãy tải lại trang rồi thử lại.', false);
+                return;
+            }
+
+            try {
+                const currentKey = currentMonthDatasetKey();
+                activeMonthKey = currentKey;
+                if (monthlySheetView) getMonthlySheetAssignments();
+                monthDatasets[currentKey] = captureMonthDataset();
+                applyBuiltInMonthlySummaryTemplatesToDatasets();
+                applyMonthlyBerthSummaryFormulasToDatasets();
+                applyReportFormulaTemplatesToDatasets();
+
+                const activeDataset = monthDatasets[currentKey];
+                if (!activeDataset || !Array.isArray(activeDataset.vessels)) {
+                    throw new Error('Không tìm thấy dữ liệu của kỳ đang xem.');
+                }
+                if (!monthlySheetView) {
+                    throw new Error('Kỳ đang xem chưa có bảng màu tháng để đưa vào workbook.');
+                }
+
+                const response = await fetch('/report-template.xlsx', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`Không tải được workbook mẫu (HTTP ${response.status}).`);
+                }
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(await response.arrayBuffer());
+                const templateMonthlySheet = workbook.getWorksheet('Tháng 1.2026');
+                if (!templateMonthlySheet) {
+                    throw new Error('Workbook mẫu thiếu sheet dữ liệu tháng.');
+                }
+
+                const period = String(reportImportSummary?.period || reportPeriodLabel || '');
+                const periodMatch = period.match(/^(\d{1,2})\/(\d{4})$/);
+                const targetMonthlyName = safeWorksheetName(
+                    monthlySheetView.sheetName ||
+                        (periodMatch ? `Tháng ${Number(periodMatch[1])}.${periodMatch[2]}` : 'Tháng dữ liệu'),
+                    'ThangDuLieu'
+                );
+                const sourceMonthlyName = templateMonthlySheet.name;
+                const assignmentState = getMonthlySheetAssignments();
+                const monthlyResult = calculateMonthlySheet(monthlySheetView, vesselData);
+                if (!monthlyResult) throw new Error('Không thể dựng bảng màu tháng có công thức.');
+                const overflow = Math.max(0, monthlyResult.rowCount - monthlySheetView.rowCount);
+                if (overflow > 0) {
+                    const insertionRow = 98;
+                    const originalLastRow = templateMonthlySheet.rowCount;
+                    const columnCount = templateMonthlySheet.columnCount;
+                    const shiftedRows = [];
+                    const shiftedMerges = [];
+                    for (let rowNumber = insertionRow; rowNumber <= originalLastRow; rowNumber++) {
+                        shiftedRows.push(snapshotExcelRowFormatting(
+                            templateMonthlySheet.getRow(rowNumber),
+                            columnCount
+                        ));
+                    }
+                    const bottomMerges = (templateMonthlySheet.model.merges || []).filter(address =>
+                        XLSX.utils.decode_range(address).s.r >= insertionRow - 1
+                    );
+                    bottomMerges.forEach(address => {
+                        const range = XLSX.utils.decode_range(address);
+                        shiftedMerges.push({
+                            startRow: range.s.r + overflow,
+                            startColumn: range.s.c,
+                            endRow: range.e.r + overflow,
+                            endColumn: range.e.c
+                        });
+                        templateMonthlySheet.unMergeCells(address);
+                    });
+                    for (let rowNumber = insertionRow; rowNumber <= originalLastRow + overflow; rowNumber++) {
+                        templateMonthlySheet.getRow(rowNumber).eachCell({ includeEmpty: true }, cell => {
+                            cell.value = null;
+                        });
+                    }
+                    shiftedRows.forEach((snapshot, index) => {
+                        restoreExcelRowFormatting(snapshot, templateMonthlySheet.getRow(insertionRow + overflow + index));
+                    });
+                    const styleSource = templateMonthlySheet.getRow(insertionRow - 1);
+                    for (let rowNumber = 98; rowNumber < 98 + overflow; rowNumber++) {
+                        copyExcelRowFormatting(styleSource, templateMonthlySheet.getRow(rowNumber), columnCount);
+                    }
+                    shiftedMerges.forEach(merge => {
+                        templateMonthlySheet.mergeCells(
+                            merge.startRow + 1,
+                            merge.startColumn + 1,
+                            merge.endRow + 1,
+                            merge.endColumn + 1
+                        );
+                    });
+                }
+                Object.entries(monthlyResult.rawValues).forEach(([address, value]) => {
+                    const cell = templateMonthlySheet.getCell(address);
+                    const formula = monthlyResult.formulas[address];
+                    cell.value = formula ? { formula } : value ?? '';
+                });
+                monthlyResult.rowHeights.forEach((height, index) => {
+                    templateMonthlySheet.getRow(index + 1).height = height;
+                });
+                templateMonthlySheet.name = targetMonthlyName;
+                if (periodMatch) {
+                    templateMonthlySheet.getCell('A1').value = `THÁNG: ${Number(periodMatch[1])}`;
+                    templateMonthlySheet.getCell('C1').value = Number(periodMatch[1]);
+                    templateMonthlySheet.getCell('E1').value = Number(periodMatch[2]);
+                }
+
+                const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const sourceReference = new RegExp(`'${escapeRegExp(sourceMonthlyName)}'!`, 'g');
+                const targetReference = new RegExp(`('${escapeRegExp(targetMonthlyName)}'!\\$?[A-Z]{1,3}\\$?)(\\d+)`, 'g');
+                workbook.worksheets.forEach(worksheet => {
+                    if (worksheet === templateMonthlySheet) return;
+                    for (const row of worksheet._rows || []) {
+                        if (!row) continue;
+                        for (const cell of row._cells || []) {
+                            if (!cell) continue;
+                            if (cell.type !== ExcelJS.ValueType.Formula) {
+                                if (periodMatch && typeof cell.value === 'string') {
+                                    cell.value = cell.value.replace(
+                                        /Tháng\s+1\/2026/gi,
+                                        `Tháng ${Number(periodMatch[1])}/${periodMatch[2]}`
+                                    );
+                                }
+                                continue;
+                            }
+                            if (!cell.value.formula) {
+                                if (cell.value.sharedFormula) cell.value = { ...cell.value, result: null };
+                                continue;
+                            }
+                            let formula = cell.value.formula.replace(sourceReference, `'${targetMonthlyName}'!`);
+                            if (overflow > 0 && !['11-T', '11B-T'].includes(worksheet.name)) {
+                                formula = formula.replace(targetReference, (reference, prefix, rowText) =>
+                                    Number(rowText) >= 101 ? `${prefix}${Number(rowText) + overflow}` : reference
+                                );
+                            }
+                            cell.value = { ...cell.value, formula, result: null };
+                        }
+                    }
+                });
+
+                ['11-T', '11B-T'].forEach((sheetName, index) => {
+                    const worksheet = workbook.getWorksheet(sheetName);
+                    if (!worksheet) throw new Error(`Workbook mẫu thiếu sheet ${sheetName}.`);
+                    const records = vesselData.filter(record => index === 0
+                        ? record.vesselClass !== 'inland'
+                        : record.vesselClass === 'inland'
+                    );
+                    populateFormulaVesselReport(
+                        worksheet,
+                        records,
+                        sourceMonthlyName,
+                        targetMonthlyName,
+                        assignmentState.assignments
+                    );
+                });
+
+                const allDatasets = Object.entries(monthDatasets)
+                    .filter(([key, dataset]) => Array.isArray(dataset.vessels) &&
+                        (dataset.vessels.length > 0 || key === currentKey));
+                const templateDataSheet = workbook.getWorksheet('DANH SÁCH TÀU');
+                if (!templateDataSheet) throw new Error('Workbook mẫu thiếu sheet danh sách tàu.');
+                workbook.removeWorksheet(templateDataSheet.id);
+                const vesselCount = appendAllVesselDataSheet(
+                    workbook.addWorksheet('DANH SÁCH TÀU'),
+                    allDatasets
+                );
+                workbook.creator = 'Maritime Port Fleet';
+                workbook.modified = new Date();
+                workbook.calcProperties = { fullCalcOnLoad: true, forceFullCalc: true };
+                const buffer = await workbook.xlsx.writeBuffer();
+                const file = new Blob([buffer], {
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                });
+                const downloadUrl = URL.createObjectURL(file);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = `Toan_Bo_Du_Lieu_Tau_Thuyen_${String(currentKey).replace(/[^\w-]/g, '-')}.xlsx`;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                downloadLink.remove();
+                window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+                showToast(`Đã tải workbook mẫu gồm 9 sheet, công thức Excel và ${vesselCount} lượt tàu từ tất cả các kỳ.`);
+            } catch (error) {
+                console.error('Không thể xuất workbook đầy đủ:', error);
+                showToast(`Tải Excel toàn bộ thất bại: ${error.message}`, false);
             }
         }
 
