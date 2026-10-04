@@ -18746,7 +18746,7 @@
                 downloadLink.href = downloadUrl;
                 downloadLink.download = `Bao_Cao_Tau_Thuyen_${periodName}.xlsx`;
                 downloadLink.click();
-                URL.revokeObjectURL(downloadUrl);
+                window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
                 showToast(`Đã tải file Excel gồm ${reportTypes.length} biểu báo cáo và bảng màu tháng.`);
             } catch (error) {
                 console.error('Không thể xuất toàn bộ biểu mẫu ra Excel:', error);
