@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: maritime-vessel-statistics
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: HOST
+        value: 0.0.0.0
+      - key: MONGODB_DB
+        value: maritime_statistics
+      - key: MONGODB_URI
+        sync: false
+      - key: API_AUTH_USERNAME
+        sync: false
+      - key: API_AUTH_PASSWORD
+        sync: false

@@ -1,0 +1,17 @@
+{
+  "name": "maritime-vessel-statistics-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local MongoDB API for maritime vessel statistics",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "mongodb": "^6.17.0"
+  }
+}

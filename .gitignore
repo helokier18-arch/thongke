@@ -1,0 +1,7 @@
+node_modules/
+.venv/
+.env
+npm-debug.log*
+database-backup.json
+database-backup.json.*.tmp
+*.xlsx
