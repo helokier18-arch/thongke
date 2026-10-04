@@ -17950,17 +17950,18 @@
                                 }
                                 continue;
                             }
-                            if (!cell.value.formula) {
-                                if (cell.value.sharedFormula) cell.value = { ...cell.value, result: null };
-                                continue;
+                            const originalFormula = cell.value.formula ||
+                                (cell.value.sharedFormula ? cell.formula : null);
+                            if (!originalFormula) {
+                                throw new Error(`Không thể đọc công thức tại ${worksheet.name}!${cell.address}.`);
                             }
-                            let formula = cell.value.formula.replace(sourceReference, `'${targetMonthlyName}'!`);
+                            let formula = originalFormula.replace(sourceReference, `'${targetMonthlyName}'!`);
                             if (overflow > 0 && !['11-T', '11B-T'].includes(worksheet.name)) {
                                 formula = formula.replace(targetReference, (reference, prefix, rowText) =>
                                     Number(rowText) >= 101 ? `${prefix}${Number(rowText) + overflow}` : reference
                                 );
                             }
-                            cell.value = { ...cell.value, formula, result: null };
+                            cell.value = { formula, result: null };
                         }
                     }
                 });
