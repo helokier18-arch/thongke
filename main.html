@@ -17496,6 +17496,20 @@
             };
         }
 
+        function containsReplacementCharacter(value) {
+            if (typeof value === 'string') return value.includes('\uFFFD');
+            if (Array.isArray(value)) return value.some(containsReplacementCharacter);
+            if (value && typeof value === 'object') {
+                return Object.values(value).some(containsReplacementCharacter);
+            }
+            return false;
+        }
+
+        function countCorruptedVesselRecords(datasets) {
+            return Object.values(datasets || {}).reduce((total, dataset) =>
+                total + (dataset.vessels || []).filter(containsReplacementCharacter).length, 0);
+        }
+
         async function readMongoApiJson(response) {
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -17554,6 +17568,13 @@
                 throw new Error('Không thể lưu dữ liệu đã nạp vào bộ nhớ cục bộ của trình duyệt.');
             }
             refreshDashboard();
+            const corruptedRecordCount = countCorruptedVesselRecords(monthDatasets);
+            if (corruptedRecordCount > 0) {
+                showToast(
+                    `MongoDB có ${corruptedRecordCount} lượt tàu chứa ký tự lỗi “�”. Hãy nhập lại file Excel gốc còn nguyên tiếng Việt; hệ thống không thể tự khôi phục ký tự đã mất.`,
+                    false
+                );
+            }
         }
 
         async function initializeMongoSync(hasLocalSavedData) {
@@ -18286,6 +18307,22 @@
                     }
 
                     if (imported.length > 0) {
+                        const corruptedRecordCount = imported.filter(containsReplacementCharacter).length;
+                        const corruptedWorkbookCellCount = workbook.SheetNames.reduce((total, sheetName) => {
+                            const worksheet = workbook.Sheets[sheetName];
+                            return total + Object.entries(worksheet).filter(([address, cell]) =>
+                                !address.startsWith('!') &&
+                                typeof cell?.v === 'string' &&
+                                cell.v.includes('\uFFFD')
+                            ).length;
+                        }, 0);
+                        if (corruptedRecordCount > 0 || corruptedWorkbookCellCount > 0) {
+                            showToast(
+                                `Không nhập file vì phát hiện ${corruptedRecordCount} lượt tàu và ${corruptedWorkbookCellCount} ô Excel có ký tự lỗi “�”. Hãy xuất lại từ file nguồn còn nguyên tiếng Việt rồi nhập lại; dữ liệu MongoDB hiện có chưa bị thay đổi.`,
+                                false
+                            );
+                            return;
+                        }
                         vesselData = imported;
                         reportWorksheetData = {};
                         const sourceSheetName = workbook.SheetNames[0];
