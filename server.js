@@ -27,11 +27,6 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
     process.exit(1);
 }
 
-if (host !== '127.0.0.1' && host !== '::1' && (!authUsername || !authPassword)) {
-    console.error('API_AUTH_USERNAME and API_AUTH_PASSWORD are required when binding beyond localhost.');
-    process.exit(1);
-}
-
 const mongoClient = new MongoClient(mongoUri, {
     serverSelectionTimeoutMS: 5000
 });
@@ -392,7 +387,7 @@ async function handleRequest(request, response) {
 
         if (request.method === 'DELETE') {
             const result = await datasets.deleteOne({ _id: key });
-            if (result.deletedCount === 0) {
+            if (result.deletedCount === 0) {	
                 sendJson(response, 404, { error: 'Dataset was not found.' });
                 return;
             }
