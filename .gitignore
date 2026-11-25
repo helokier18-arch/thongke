@@ -1,10 +1,14 @@
 node_modules/
 .venv/
 .env
+.vscode/
 npm-debug.log*
 database-backup.json
 database-backup.json.*.tmp
 database-backup.json.previous-*
 migration-errors.log
+__pycache__/
+*.py[cod]
+python-app/*.db
 *.xlsx
 !/report-template.xlsx

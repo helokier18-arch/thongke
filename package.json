@@ -1,0 +1,23 @@
+{
+  "name": "maritime-vessel-statistics-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MySQL API for maritime vessel statistics",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate:regions:check": "node migrate-vessel-areas.js",
+    "migrate:regions:apply": "node migrate-vessel-areas.js --apply",
+    "migrate:mongo-to-mysql:dry-run": "node scripts/migrate-mongo-to-mysql.js --dry-run",
+    "migrate:mongo-to-mysql": "node scripts/migrate-mongo-to-mysql.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "mongodb": "^6.17.0",
+    "exceljs": "^4.4.0",
+    "mysql2": "^3.14.1"
+  }
+}
