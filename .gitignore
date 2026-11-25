@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+.env
+npm-debug.log*
+database-backup.json
+database-backup.json.*.tmp
+database-backup.json.previous-*
+migration-errors.log
+*.xlsx
+!/report-template.xlsx
