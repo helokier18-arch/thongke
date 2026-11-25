@@ -17580,6 +17580,50 @@
                 total + (dataset.vessels || []).filter(containsReplacementCharacter).length, 0);
         }
 
+        function getMongoApiAuthorization() {
+            const storageKey = 'maritime-mongo-api-auth-v1';
+            let encoded = '';
+            try {
+                encoded = sessionStorage.getItem(storageKey) || '';
+            } catch {
+                // Continue with an in-memory prompt if session storage is unavailable.
+            }
+            if (!encoded) {
+                const username = window.prompt('Nhập API_AUTH_USERNAME được cấu hình trong Render:');
+                if (username === null || !username.trim()) {
+                    throw new Error('Bạn đã hủy đăng nhập API; MongoDB chưa được đồng bộ.');
+                }
+                const password = window.prompt('Nhập API_AUTH_PASSWORD được cấu hình trong Render:');
+                if (password === null || !password) {
+                    throw new Error('Bạn đã hủy đăng nhập API; MongoDB chưa được đồng bộ.');
+                }
+                const bytes = new TextEncoder().encode(username.trim() + ':' + password);
+                const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+                encoded = btoa(binary);
+                try {
+                    sessionStorage.setItem(storageKey, encoded);
+                } catch {
+                    // The current page can still use the credential for this request.
+                }
+            }
+            return 'Basic ' + encoded;
+        }
+
+        async function fetchMongoApi(url, options = {}) {
+            let response = await fetch(url, options);
+            if (response.status !== 401) return response;
+
+            const headers = new Headers(options.headers || {});
+            headers.set('Authorization', getMongoApiAuthorization());
+            response = await fetch(url, { ...options, headers });
+            if (response.status === 401) {
+                try { sessionStorage.removeItem('maritime-mongo-api-auth-v1'); } catch {}
+                headers.set('Authorization', getMongoApiAuthorization());
+                response = await fetch(url, { ...options, headers });
+            }
+            return response;
+        }
+
         async function readMongoApiJson(response) {
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -17632,7 +17676,7 @@
             mongoSyncTimer = window.setTimeout(() => {
                 const requestId = ++mongoSyncRequestId;
                 mongoSyncQueue = mongoSyncQueue.then(async () => {
-                    const response = await fetch('/api/state', {
+                    const response = await fetchMongoApi('/api/state', {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body
@@ -17709,7 +17753,7 @@
             setMongoSyncStatus('đang kết nối...', 'Đang kiểm tra API và MongoDB.', 'busy');
             try {
                 await readMongoApiJson(await fetch('/api/health', { cache: 'no-store' }));
-                const remoteMeta = await readMongoApiJson(await fetch('/api/state/meta', { cache: 'no-store' }));
+                const remoteMeta = await readMongoApiJson(await fetchMongoApi('/api/state/meta', { cache: 'no-store' }));
                 if (hasLocalSavedData && remoteMeta.stateExists && remoteMeta.updatedAt) {
                     const localState = createApplicationState();
                     const localFingerprint = await fingerprintApplicationState(localState);
@@ -17727,7 +17771,7 @@
                     }
                 }
 
-                const remote = await readMongoApiJson(await fetch('/api/state', { cache: 'no-store' }));
+                const remote = await readMongoApiJson(await fetchMongoApi('/api/state', { cache: 'no-store' }));
                 const localState = createApplicationState();
                 mongoSyncEnabled = false;
                 let localStateMatchesRemote = false;
@@ -19218,7 +19262,7 @@
 
         async function importExcelIntoMongo(file, monthKey) {
             const query = new URLSearchParams({ khuVuc: 'auto', monthKey });
-            const response = await fetch(`/api/vessels/import?${query}`, {
+            const response = await fetchMongoApi(`/api/vessels/import?${query}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
                 body: file
@@ -21781,7 +21825,7 @@
             const { params, key } = summaryQuery();
             if (periodSummaryCacheKey === key && periodSummaryData) return periodSummaryData;
             const requestId = ++periodSummaryRequestId;
-            const result = await readMongoApiJson(await fetch(`/api/tong-hop?${params}`, { cache: 'no-store' }));
+            const result = await readMongoApiJson(await fetchMongoApi(`/api/tong-hop?${params}`, { cache: 'no-store' }));
             if (requestId !== periodSummaryRequestId) return null;
             periodSummaryData = result;
             periodSummaryCacheKey = key;
@@ -22016,7 +22060,7 @@
                 monthKey: currentMonthDatasetKey()
             });
             try {
-                const result = await readMongoApiJson(await fetch(`/api/vessels?${query}`, { cache: 'no-store' }));
+                const result = await readMongoApiJson(await fetchMongoApi(`/api/vessels?${query}`, { cache: 'no-store' }));
                 if (requestId !== areaFetchRequestId || selectedArea !== area) return;
                 selectedAreaVesselIds = new Set((result.vessels || []).map(vessel => String(vessel.id)));
                 applyFilters();
