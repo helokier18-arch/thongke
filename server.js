@@ -552,7 +552,7 @@ async function handleRequest(request, response) {
 
     const url = new URL(request.url, 'http://127.0.0.1');
     // Accept API paths with or without a trailing slash.
-    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\\/+$/, '');
+    while (url.pathname.length > 1 && url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
 
     if (request.method === 'GET' && url.pathname === '/api/version') {
         sendJson(response, 200, {
