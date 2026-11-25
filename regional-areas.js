@@ -26,6 +26,7 @@
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     if (root && typeof root === 'object') {
         root.classifyPortArea = classifyPortArea;
+        root.MARITIME_AREAS = api;
         root.MaritimeRegionalAreas = api;
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
