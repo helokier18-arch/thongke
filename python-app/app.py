@@ -756,7 +756,7 @@ class App(tk.Tk):
 if __name__ == "__main__":
     connection = tk.Tk()
     connection.title("Kết nối thống kê online")
-    connection.geometry("460x230")
+    connection.geometry("460x170")
     connection.resizable(False, False)
     connection.configure(padx=16, pady=14)
 
@@ -765,24 +765,17 @@ if __name__ == "__main__":
     url_entry.grid(row=1, column=0, pady=(4, 10), sticky="ew")
     url_entry.insert(0, os.getenv("PYTHON_STATS_API_URL", ""))
 
-    ttk.Label(connection, text="Tên đăng nhập API").grid(row=2, column=0, sticky="w")
-    username_entry = ttk.Entry(connection, width=52)
-    username_entry.grid(row=3, column=0, pady=(4, 10), sticky="ew")
-
-    ttk.Label(connection, text="Mật khẩu API").grid(row=4, column=0, sticky="w")
-    password_entry = ttk.Entry(connection, width=52, show="*")
-    password_entry.grid(row=5, column=0, pady=(4, 12), sticky="ew")
+    ttk.Label(
+        connection,
+        text="Không cần tài khoản. Ai có URL đều có thể xem, thêm, sửa hoặc xóa dữ liệu.",
+    ).grid(row=2, column=0, pady=(0, 10), sticky="w")
 
     connection_result = {"database": None, "local": False}
 
     def connect():
         database = None
         try:
-            database = OnlineStatisticsDatabase(
-                url_entry.get(),
-                username_entry.get(),
-                password_entry.get(),
-            )
+            database = OnlineStatisticsDatabase(url_entry.get())
             database.check_connection()
         except Exception as error:
             if database is not None:
@@ -797,7 +790,7 @@ if __name__ == "__main__":
         connection.destroy()
 
     buttons = ttk.Frame(connection)
-    buttons.grid(row=6, column=0, sticky="e")
+    buttons.grid(row=3, column=0, sticky="e")
     ttk.Button(buttons, text="Kết nối", command=connect).pack(side="left", padx=4)
     ttk.Button(buttons, text="Dùng SQLite local", command=use_local).pack(
         side="left", padx=4

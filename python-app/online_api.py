@@ -1,13 +1,11 @@
-import hmac
 import os
 import re
 from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.errors import PyMongoError
@@ -20,7 +18,6 @@ MAX_BODY_BYTES = 15 * 1024 * 1024
 MONTH_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 app = FastAPI(title="Python vessel statistics API", docs_url=None, redoc_url=None)
-basic_auth = HTTPBasic(auto_error=False)
 client: MongoClient | None = None
 
 
@@ -45,23 +42,6 @@ def get_database():
             serverSelectionTimeoutMS=8000,
         )
     return client[DATABASE_NAME]
-
-
-def require_auth(credentials: HTTPBasicCredentials | None = Depends(basic_auth)):
-    expected_user = os.getenv("API_AUTH_USERNAME", "")
-    expected_password = os.getenv("API_AUTH_PASSWORD", "")
-    if not expected_user or not expected_password:
-        raise HTTPException(status_code=503, detail="API authentication is not configured.")
-    if credentials is None or not (
-        hmac.compare_digest(credentials.username.encode("utf-8"), expected_user.encode("utf-8"))
-        and hmac.compare_digest(credentials.password.encode("utf-8"), expected_password.encode("utf-8"))
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Thông tin đăng nhập không hợp lệ.",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
 
 
 def validate_period(month_key: str) -> str:
@@ -283,14 +263,13 @@ def health():
 
 
 @app.get("/api/periods")
-def list_periods(_user: str = Depends(require_auth)):
+def list_periods():
     return {"periods": sorted(get_database().periods.distinct("month_key"))}
 
 
 @app.get("/api/counts")
 def counts_by_area(
     period: str = "",
-    _user: str = Depends(require_auth),
 ):
     match = {"period_month": validate_period(period)} if period else {}
     values = {area: 0 for area in AREAS}
@@ -308,7 +287,6 @@ def totals(
     period: str = "",
     area: str = "Tổng hợp",
     search: str = "",
-    _user: str = Depends(require_auth),
 ):
     pipeline = [
         {"$match": vessel_filter(period, area, search)},
@@ -342,7 +320,6 @@ def search_vessels(
     area: str = "Tổng hợp",
     search: str = "",
     limit: int = Query(default=500, ge=1, le=1000),
-    _user: str = Depends(require_auth),
 ):
     projection = {
         "period_month": 1, "legacy_id": 1, "khu_vuc": 1, "ship_name": 1,
@@ -386,7 +363,6 @@ def export_rows(
     period: str = "",
     area: str = "Tổng hợp",
     search: str = "",
-    _user: str = Depends(require_auth),
 ):
     rows = get_database().vessels.find(
         vessel_filter(period, area, search),
@@ -431,7 +407,7 @@ def export_rows(
 
 
 @app.get("/api/vessels/{record_id}")
-def get_vessel(record_id: str, _user: str = Depends(require_auth)):
+def get_vessel(record_id: str):
     document = get_database().vessels.find_one({"_id": _record_id(record_id)})
     if not document:
         raise HTTPException(status_code=404, detail="Không tìm thấy lượt tàu.")
@@ -439,7 +415,7 @@ def get_vessel(record_id: str, _user: str = Depends(require_auth)):
 
 
 @app.post("/api/vessels")
-def add_vessel(body: VesselRequest, _user: str = Depends(require_auth)):
+def add_vessel(body: VesselRequest):
     database = get_database()
     document = _normalize_vessel(body.month_key, body.vessel)
     if document["legacy_id"] is None:
@@ -455,7 +431,7 @@ def add_vessel(body: VesselRequest, _user: str = Depends(require_auth)):
 
 
 @app.put("/api/vessels/{record_id}")
-def update_vessel(record_id: str, body: VesselRequest, _user: str = Depends(require_auth)):
+def update_vessel(record_id: str, body: VesselRequest):
     database = get_database()
     document = _normalize_vessel(body.month_key, body.vessel)
     if document["legacy_id"] is None:
@@ -482,7 +458,7 @@ def update_vessel(record_id: str, body: VesselRequest, _user: str = Depends(requ
 
 
 @app.delete("/api/vessels/{record_id}")
-def delete_vessel(record_id: str, _user: str = Depends(require_auth)):
+def delete_vessel(record_id: str):
     result = get_database().vessels.delete_one({"_id": _record_id(record_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Không tìm thấy lượt tàu.")
@@ -495,7 +471,6 @@ def report_payloads(
     year: int = 0,
     period_type: str = "tháng",
     area: str = "Tổng hợp",
-    _user: str = Depends(require_auth),
 ):
     match = _report_match(period_month, year, period_type, area)
     cursor = get_database().vessels.find(
@@ -516,7 +491,6 @@ def period_report(
     period_type: str,
     year: int,
     area: str = "Tổng hợp",
-    _user: str = Depends(require_auth),
 ):
     if period_type == "6 đầu":
         start_month, end_month = 1, 6
@@ -566,7 +540,7 @@ def period_report(
 
 
 @app.post("/api/import")
-def import_backup(body: BackupRequest, _user: str = Depends(require_auth)):
+def import_backup(body: BackupRequest):
     try:
         state = body.backup["collections"]["applicationState"][0]["state"]
         datasets = state["monthDatasets"]

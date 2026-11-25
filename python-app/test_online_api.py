@@ -4,10 +4,34 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from api_db import OnlineStatisticsDatabase
-from online_api import _normalize_vessel, period_filter, validate_period, vessel_filter
+from online_api import (
+    _normalize_vessel,
+    app,
+    list_periods,
+    period_filter,
+    validate_period,
+    vessel_filter,
+)
 
 
 class OnlineApiHelpersTest(unittest.TestCase):
+    def test_api_routes_are_public(self):
+        schema = app.openapi()
+        self.assertNotIn("security", schema["paths"]["/api/periods"]["get"])
+        self.assertNotIn("securitySchemes", schema.get("components", {}))
+
+    def test_periods_endpoint_needs_no_credentials(self):
+        class FakePeriods:
+            @staticmethod
+            def distinct(_field):
+                return ["2026-01"]
+
+        class FakeDatabase:
+            periods = FakePeriods()
+
+        with patch("online_api.get_database", return_value=FakeDatabase()):
+            self.assertEqual(list_periods(), {"periods": ["2026-01"]})
+
     def test_period_filter_handles_half_year_and_previous_month(self):
         self.assertEqual(
             period_filter(year=2026, period_type="6 tháng đầu"),
@@ -58,9 +82,9 @@ class OnlineApiHelpersTest(unittest.TestCase):
 class OnlineDatabaseClientTest(unittest.TestCase):
     def test_remote_api_rejects_non_https_public_urls(self):
         with self.assertRaises(ValueError):
-            OnlineStatisticsDatabase("http://stats.example.com", "user", "password")
+            OnlineStatisticsDatabase("http://stats.example.com")
 
-    def test_connection_uses_api_credentials_and_checks_authentication(self):
+    def test_connection_needs_no_credentials_and_checks_database(self):
         class FakeResponse:
             def __init__(self, body):
                 self.body = body
@@ -72,7 +96,6 @@ class OnlineDatabaseClientTest(unittest.TestCase):
 
         class FakeSession:
             def __init__(self):
-                self.auth = None
                 self.headers = {}
                 self.calls = []
 
@@ -87,12 +110,9 @@ class OnlineDatabaseClientTest(unittest.TestCase):
 
         fake_session = FakeSession()
         with patch("api_db.requests.Session", return_value=fake_session):
-            database = OnlineStatisticsDatabase(
-                "https://stats.example.com/", "test-user", "test-password"
-            )
+            database = OnlineStatisticsDatabase("https://stats.example.com/")
             database.check_connection()
 
-        self.assertEqual(fake_session.auth, ("test-user", "test-password"))
         self.assertEqual(
             fake_session.calls,
             [

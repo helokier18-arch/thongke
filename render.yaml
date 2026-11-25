@@ -34,7 +34,3 @@ services:
         value: maritime_statistics_python
       - key: MONGODB_URI
         sync: false
-      - key: API_AUTH_USERNAME
-        sync: false
-      - key: API_AUTH_PASSWORD
-        sync: false

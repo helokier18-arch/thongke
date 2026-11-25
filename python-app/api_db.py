@@ -6,7 +6,7 @@ import requests
 
 
 class OnlineStatisticsDatabase:
-    def __init__(self, base_url: str, username: str, password: str):
+    def __init__(self, base_url: str):
         parsed = urlparse(base_url.strip())
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             raise ValueError("Địa chỉ API phải bắt đầu bằng http:// hoặc https://.")
@@ -14,7 +14,6 @@ class OnlineStatisticsDatabase:
             raise ValueError("API online phải dùng HTTPS.")
         self.base_url = base_url.strip().rstrip("/")
         self.session = requests.Session()
-        self.session.auth = (username, password)
         self.session.headers.update({"Accept": "application/json"})
 
     def _request(self, method: str, path: str, **kwargs):
@@ -36,7 +35,7 @@ class OnlineStatisticsDatabase:
             body = {}
         if not response.ok:
             if response.status_code == 401:
-                message = "Tên đăng nhập hoặc mật khẩu API không đúng."
+                message = "API vẫn yêu cầu đăng nhập. Hãy cập nhật dịch vụ Python trên Render."
             elif response.status_code >= 500:
                 message = "Máy chủ online đang lỗi hoặc chưa kết nối được cơ sở dữ liệu."
             else:
