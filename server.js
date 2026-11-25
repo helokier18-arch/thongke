@@ -16,7 +16,7 @@ const {
 } = require('./summary-report.js');
 const repository = require('./repository.js');
 
-const databaseName = process.env.DB_NAME || 'maritime_statistics';
+const databaseName = process.env.MONGODB_DB || 'maritime_statistics';
 const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const host = process.env.HOST || '127.0.0.1';
 const authUsername = process.env.API_AUTH_USERNAME || '';
@@ -558,11 +558,11 @@ async function handleRequest(request, response) {
         try {
             await repository.pool.query('SELECT 1');
         } catch (error) {
-            console.error(`MySQL health check failed: ${error.message}`);
+            console.error(`MongoDB health check failed: ${error.message}`);
             sendJson(response, 503, {
                 status: 'error',
                 database: databaseName,
-                error: 'Không thể kết nối MySQL. Hãy kiểm tra dịch vụ MySQL và cấu hình kết nối.'
+                error: 'Không thể kết nối MongoDB Atlas. Hãy kiểm tra cấu hình dịch vụ và quyền truy cập mạng.'
             });
             return;
         }
@@ -797,7 +797,7 @@ async function handleRequest(request, response) {
         } catch (error) {
             if (error.statusCode) throw error;
             console.error(`Could not save application state: ${error.message}`);
-            throw Object.assign(new Error('Không thể lưu trạng thái ứng dụng vào MySQL.'), { statusCode: 500 });
+            throw Object.assign(new Error('Không thể lưu trạng thái ứng dụng vào MongoDB.'), { statusCode: 500 });
         }
         return;
     }
@@ -902,7 +902,7 @@ async function main() {
 
     server.listen(port, host, () => {
         console.log(`Maritime statistics API listening at http://${host}:${port}`);
-        console.log(`MySQL database: ${databaseName}`);
+        console.log(`MongoDB database: ${databaseName}`);
     });
 
     const shutdown = () => {
@@ -915,7 +915,7 @@ async function main() {
 }
 
 main().catch(async error => {
-    console.error(`Could not start the MySQL API: ${error.message}`);
+    console.error(`Could not start the MongoDB API: ${error.message}`);
     await repository.pool.end();
     process.exit(1);
 });

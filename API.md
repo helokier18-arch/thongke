@@ -1,20 +1,20 @@
-# MySQL API
+# MongoDB Atlas API
 
-This API stores version 3 application state and monthly vessel statistics in MySQL/MariaDB. The browser also keeps a local copy for recovery.
+This API stores version 3 application state and monthly vessel statistics in MongoDB Atlas. The browser also keeps a local copy for recovery.
 
 ## Requirements
 
 - Node.js 20 or later
-- XAMPP MySQL/MariaDB or another MySQL-compatible server
+- A MongoDB Atlas cluster (or another MongoDB deployment)
 
 ## Run locally on Windows
 
-1. Install Node.js 20 or later and start **MySQL** in the XAMPP Control Panel.
+1. Install Node.js 20 or later.
 2. In MongoDB Atlas, open the cluster and:
    - Add a database user under **Security → Database Access**. Use a dedicated username and password; do not use an Atlas account password.
    - Add your current IP address under **Security → Network Access**. Avoid allowing access from `0.0.0.0/0`.
    - Choose **Connect → Drivers → Node.js** and copy the connection string.
-3. Copy `.env.example` to `.env`. Set `MONGODB_URI` to the copied connection string, replace its password placeholder with the database user's password, and set the database name to `maritime_statistics`. URL-encode special characters in the password. Keep `.env` private; it is excluded by `.gitignore`.
+3. Copy `.env.example` to `.env`. Set `MONGODB_URI` to the copied connection string and `MONGODB_DB` to `maritime_statistics`. URL-encode special characters in the password. Keep `.env` private; it is excluded by `.gitignore`.
 4. Keep `API_PORT=3000`. The API serves `main.html` and the separate `monthly-formulas.js` calculation engine from the same origin, so the browser does not need cross-origin access.
 5. In PowerShell, from this directory, run:
 

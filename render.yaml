@@ -11,18 +11,10 @@ services:
         value: 24.19.0
       - key: HOST
         value: 0.0.0.0
-      - key: DB_NAME
+      - key: MONGODB_DB
         value: maritime_statistics
-      - key: DB_HOST
+      - key: MONGODB_URI
         sync: false
-      - key: DB_PORT
-        value: 3306
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_SSL
-        value: "true"
       - key: API_AUTH_USERNAME
         sync: false
       - key: API_AUTH_PASSWORD
