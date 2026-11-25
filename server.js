@@ -17,6 +17,7 @@ const {
 const repository = require('./repository.js');
 
 const databaseName = process.env.MONGODB_DB || 'maritime_statistics';
+const buildCommit = process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || 'unknown';
 const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const host = process.env.HOST || '127.0.0.1';
 const authUsername = process.env.API_AUTH_USERNAME || '';
@@ -550,6 +551,20 @@ async function handleRequest(request, response) {
     }
 
     const url = new URL(request.url, 'http://127.0.0.1');
+    // Accept API paths with or without a trailing slash.
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\\/+$/, '');
+
+    if (request.method === 'GET' && url.pathname === '/api/version') {
+        sendJson(response, 200, {
+            service: 'maritime-vessel-statistics-api',
+            version: require('./package.json').version,
+            commit: buildCommit,
+            node: process.version,
+            database: databaseName
+        });
+        return;
+    }
+
     if (request.method === 'GET' && !url.pathname.startsWith('/api/')) {
         if (await serveStaticFile(url.pathname, response)) return;
     }
@@ -566,7 +581,11 @@ async function handleRequest(request, response) {
             });
             return;
         }
-        sendJson(response, 200, { status: 'ok', database: databaseName });
+        sendJson(response, 200, {
+            status: 'ok',
+            database: databaseName,
+            commit: buildCommit
+        });
         return;
     }
 
