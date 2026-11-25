@@ -19,3 +19,22 @@ services:
         sync: false
       - key: API_AUTH_PASSWORD
         sync: false
+  - type: web
+    name: maritime-vessel-statistics-python-api
+    runtime: python
+    rootDir: python-app
+    plan: free
+    buildCommand: pip install -r requirements-api.txt
+    startCommand: uvicorn online_api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: MONGODB_DB
+        value: maritime_statistics_python
+      - key: MONGODB_URI
+        sync: false
+      - key: API_AUTH_USERNAME
+        sync: false
+      - key: API_AUTH_PASSWORD
+        sync: false

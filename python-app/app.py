@@ -12,6 +12,7 @@ except ImportError:
 
 from db import AREAS, StatisticsDatabase
 from reports import REPORTS, build_form_rows
+from api_db import OnlineStatisticsDatabase
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,20 +21,21 @@ DATABASE_PATH = BASE_DIR / "thong_ke_tau.db"
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, database=None, online: bool = False):
         super().__init__()
-        self.title("Thống kê tàu thuyền")
+        self.online = online
+        self.database = database or StatisticsDatabase(DATABASE_PATH)
+        self.title("Thống kê tàu thuyền — Online" if online else "Thống kê tàu thuyền")
         self.geometry("1180x720")
         self.minsize(900, 620)
 
-        self.database = StatisticsDatabase(DATABASE_PATH)
         self.period_var = tk.StringVar(value="")
         self.area_var = tk.StringVar(value="Tổng hợp")
         self.search_var = tk.StringVar(value="")
 
         self._create_ui()
         default_backup = PROJECT_DIR / "database-backup.json"
-        if self.database.vessel_count() == 0 and default_backup.exists():
+        if not online and self.database.vessel_count() == 0 and default_backup.exists():
             try:
                 self.database.replace_from_backup(default_backup)
             except Exception as error:
@@ -85,7 +87,7 @@ class App(tk.Tk):
         search.bind("<Return>", lambda _event: self.refresh())
         ttk.Button(toolbar, text="Tìm", command=self.refresh).pack(side="left")
 
-        ttk.Button(toolbar, text="Nạp dữ liệu thật", command=self.import_real_backup).pack(
+        ttk.Button(toolbar, text="Nạp lên server", command=self.import_real_backup).pack(
             side="right", padx=4
         )
         ttk.Button(toolbar, text="Thêm tàu", command=self.add_vessel_dialog).pack(
@@ -279,7 +281,11 @@ class App(tk.Tk):
         self.refresh_report()
 
     def refresh_periods(self):
-        periods = self.database.periods()
+        try:
+            periods = self.database.periods()
+        except Exception as error:
+            messagebox.showerror("Không tải được kỳ báo cáo", str(error), parent=self)
+            return
         values = ("",) + tuple(periods)
         self.period_combo.configure(values=values)
         if hasattr(self, "report_month_combo"):
@@ -300,7 +306,14 @@ class App(tk.Tk):
 
         for item in self.tree.get_children():
             self.tree.delete(item)
-        totals = self.database.totals(period, area, search)
+        try:
+            totals = self.database.totals(period, area, search)
+            rows = self.database.search(period, area, search)
+            area_counts = self.database.counts_by_area(period)
+        except Exception as error:
+            self.status.configure(text="Không kết nối được dữ liệu online.")
+            messagebox.showerror("Không tải được dữ liệu", str(error), parent=self)
+            return
         for key, label in self.summary_labels.items():
             value = totals.get(key, 0)
             if key == "vessel_count":
@@ -308,15 +321,18 @@ class App(tk.Tk):
             else:
                 label.configure(text=f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        rows = self.database.search(period, area, search)
         for row in rows:
             values = tuple(row.get(column) if row.get(column) is not None else "" for column in self.tree["columns"])
             self.tree.insert("", "end", iid=str(row["id"]), values=values)
 
-        area_counts = self.database.counts_by_area(period)
         area_text = " | ".join(f"{name}: {count}" for name, count in area_counts.items())
+        database_label = (
+            f"API online: {self.database.base_url}"
+            if self.online
+            else f"Cơ sở dữ liệu: {DATABASE_PATH.name}"
+        )
         self.status.configure(
-            text=f"Cơ sở dữ liệu: {DATABASE_PATH.name} — "
+            text=f"{database_label} — "
                  f"{len(rows)} dòng hiển thị — {area_text}"
         )
 
@@ -333,43 +349,47 @@ class App(tk.Tk):
         if period_type == "tháng" and month_key:
             year = int(month_key[:4])
 
-        payloads = self.database.report_payloads(
-            period_month=month_key,
-            year=year,
-            period_type=period_type,
-            area=selected_area,
-        )
-        if period_type == "tháng" and month_key:
-            cumulative_payloads = self.database.report_payloads(
+        try:
+            payloads = self.database.report_payloads(
                 period_month=month_key,
                 year=year,
-                period_type="lũy kế",
+                period_type=period_type,
                 area=selected_area,
             )
-            before_payloads = self.database.report_payloads(
-                period_month=month_key,
-                year=year,
-                period_type="trước kỳ",
-                area=selected_area,
-            )
-            previous_month = f"{year - 1}-{month_key[5:]}"
-            previous_payloads = self.database.report_payloads(
-                period_month=previous_month,
-                year=year - 1,
-                period_type="tháng",
-                area=selected_area,
-            )
-            previous_cumulative_payloads = self.database.report_payloads(
-                period_month=previous_month,
-                year=year - 1,
-                period_type="lũy kế",
-                area=selected_area,
-            )
-        else:
-            cumulative_payloads = payloads
-            before_payloads = []
-            previous_payloads = []
-            previous_cumulative_payloads = []
+            if period_type == "tháng" and month_key:
+                cumulative_payloads = self.database.report_payloads(
+                    period_month=month_key,
+                    year=year,
+                    period_type="lũy kế",
+                    area=selected_area,
+                )
+                before_payloads = self.database.report_payloads(
+                    period_month=month_key,
+                    year=year,
+                    period_type="trước kỳ",
+                    area=selected_area,
+                )
+                previous_month = f"{year - 1}-{month_key[5:]}"
+                previous_payloads = self.database.report_payloads(
+                    period_month=previous_month,
+                    year=year - 1,
+                    period_type="tháng",
+                    area=selected_area,
+                )
+                previous_cumulative_payloads = self.database.report_payloads(
+                    period_month=previous_month,
+                    year=year - 1,
+                    period_type="lũy kế",
+                    area=selected_area,
+                )
+            else:
+                cumulative_payloads = payloads
+                before_payloads = []
+                previous_payloads = []
+                previous_cumulative_payloads = []
+        except Exception as error:
+            messagebox.showerror("Không tải được báo cáo", str(error), parent=self)
+            return
         columns, rows = build_form_rows(
             report_code,
             payloads,
@@ -532,7 +552,7 @@ class App(tk.Tk):
             sheet.column_dimensions[column_cells[0].column_letter].width = width
         workbook.save(path)
 
-    def _open_vessel_dialog(self, title: str, vessel_db_id: int | None = None):
+    def _open_vessel_dialog(self, title: str, vessel_db_id: int | str | None = None):
         payload = self.database.payload(vessel_db_id) if vessel_db_id else {}
         period = payload.get("periodMonth") or payload.get("monthKey") or self.period_var.get()
         if period not in self.database.periods():
@@ -641,7 +661,8 @@ class App(tk.Tk):
         if not selection:
             messagebox.showwarning("Chưa chọn tàu", "Hãy chọn một tàu trong danh sách.")
             return
-        self._open_vessel_dialog("Sửa tàu", int(selection[0]))
+        vessel_id = selection[0] if self.online else int(selection[0])
+        self._open_vessel_dialog("Sửa tàu", vessel_id)
 
     def delete_vessel_dialog(self):
         selection = self.tree.selection()
@@ -650,8 +671,12 @@ class App(tk.Tk):
             return
         if not messagebox.askyesno("Xóa tàu", "Bạn có chắc muốn xóa lượt tàu này?"):
             return
-        self.database.delete_vessel(int(selection[0]))
-        self.refresh()
+        try:
+            vessel_id = selection[0] if self.online else int(selection[0])
+            self.database.delete_vessel(vessel_id)
+            self.refresh()
+        except Exception as error:
+            messagebox.showerror("Không xóa được tàu", str(error), parent=self)
 
     def import_real_backup(self):
         default_backup = PROJECT_DIR / "database-backup.json"
@@ -669,6 +694,7 @@ class App(tk.Tk):
             messagebox.showinfo(
                 "Đã nạp dữ liệu",
                 f"Đã nạp: {result['inserted']} lượt\n"
+                f"Cập nhật: {result.get('updated', 0)} lượt\n"
                 f"Kỳ: {result['periodCount']}\n"
                 f"Bỏ qua: {result['skipped']}",
             )
@@ -679,7 +705,11 @@ class App(tk.Tk):
         period = self.period_var.get()
         area = self.area_var.get()
         search = self.search_var.get().strip()
-        rows = list(self.database.export_rows(period, area, search))
+        try:
+            rows = list(self.database.export_rows(period, area, search))
+        except Exception as error:
+            messagebox.showerror("Không xuất được dữ liệu", str(error), parent=self)
+            return
         if not rows:
             messagebox.showwarning("Không có dữ liệu", "Không có dòng nào phù hợp bộ lọc.")
             return
@@ -724,4 +754,58 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    connection = tk.Tk()
+    connection.title("Kết nối thống kê online")
+    connection.geometry("460x230")
+    connection.resizable(False, False)
+    connection.configure(padx=16, pady=14)
+
+    ttk.Label(connection, text="Địa chỉ API Render").grid(row=0, column=0, sticky="w")
+    url_entry = ttk.Entry(connection, width=52)
+    url_entry.grid(row=1, column=0, pady=(4, 10), sticky="ew")
+    url_entry.insert(0, os.getenv("PYTHON_STATS_API_URL", ""))
+
+    ttk.Label(connection, text="Tên đăng nhập API").grid(row=2, column=0, sticky="w")
+    username_entry = ttk.Entry(connection, width=52)
+    username_entry.grid(row=3, column=0, pady=(4, 10), sticky="ew")
+
+    ttk.Label(connection, text="Mật khẩu API").grid(row=4, column=0, sticky="w")
+    password_entry = ttk.Entry(connection, width=52, show="*")
+    password_entry.grid(row=5, column=0, pady=(4, 12), sticky="ew")
+
+    connection_result = {"database": None, "local": False}
+
+    def connect():
+        database = None
+        try:
+            database = OnlineStatisticsDatabase(
+                url_entry.get(),
+                username_entry.get(),
+                password_entry.get(),
+            )
+            database.check_connection()
+        except Exception as error:
+            if database is not None:
+                database.close()
+            messagebox.showerror("Không kết nối được", str(error), parent=connection)
+            return
+        connection_result["database"] = database
+        connection.destroy()
+
+    def use_local():
+        connection_result["local"] = True
+        connection.destroy()
+
+    buttons = ttk.Frame(connection)
+    buttons.grid(row=6, column=0, sticky="e")
+    ttk.Button(buttons, text="Kết nối", command=connect).pack(side="left", padx=4)
+    ttk.Button(buttons, text="Dùng SQLite local", command=use_local).pack(
+        side="left", padx=4
+    )
+    ttk.Button(buttons, text="Thoát", command=connection.destroy).pack(side="left", padx=4)
+    connection.mainloop()
+
+    if connection_result["database"] is not None:
+        App(database=connection_result["database"], online=True).mainloop()
+    elif connection_result["local"]:
+        App().mainloop()

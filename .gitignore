@@ -1,5 +1,6 @@
 node_modules/
 .venv/
+.venv-python/
 .env
 .vscode/
 npm-debug.log*
@@ -10,5 +11,10 @@ migration-errors.log
 __pycache__/
 *.py[cod]
 python-app/*.db
+python-app/build/
+python-app/dist/
+python-app/release/
+python-app/release-final/
+python-app/*.spec
 *.xlsx
 !/report-template.xlsx
