@@ -309,6 +309,7 @@ async function parseExcelVessels(buffer, requestedArea) {
             dateIn: column('ngay den'),
             dateOut: column('ngay roi'),
             port: column('ben lam hang', 'cang lam hang'),
+            portArea: column('khu vuc', 'khu vuc cang', 'khu vuc ben', 'region'),
             nextPort: column('cang den tiep theo', 'cang tiep theo'),
             agent: column('dai ly')
         };
@@ -335,7 +336,10 @@ async function parseExcelVessels(buffer, requestedArea) {
             const callSign = String(row[columns.callSign] ?? '').trim() || 'N/A';
             const dateIn = excelDateToIso(row[columns.dateIn]);
             const port = String(row[columns.port] ?? '').trim();
-            const area = requestedArea === 'auto' ? classifyPortArea(port) : requestedArea;
+            const portArea = String(row[columns.portArea] ?? '').trim();
+            const area = requestedArea === 'auto'
+                ? (port ? classifyPortArea(port, portArea) : null)
+                : requestedArea;
             if (!area) {
                 errors.push({
                     row: line,
@@ -933,8 +937,12 @@ async function main() {
     process.on('SIGTERM', shutdown);
 }
 
-main().catch(async error => {
-    console.error(`Could not start the MongoDB API: ${error.message}`);
-    await repository.pool.end();
-    process.exit(1);
-});
+if (require.main === module) {
+    main().catch(async error => {
+        console.error(`Could not start the MongoDB API: ${error.message}`);
+        await repository.pool.end();
+        process.exit(1);
+    });
+}
+
+module.exports = { parseExcelVessels };
